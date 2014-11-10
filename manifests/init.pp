@@ -52,22 +52,26 @@ class osticket (
   $ost_plugins     = [],
 ) inherits params {
 
-  php::module{['imap','gd','mysql']:
-    notify => [Service['apache2'],Exec['enable-php5-imap']],
-  }
+  ensure_resource('php::module', ['imap','gd','mysql'] )
+  
   exec {'enable-php5-imap':
     command     => '/usr/sbin/php5enmod imap',
     unless      => '/usr/sbin/php5query -M |grep imap',
     refreshonly => true,
+    subscribe   => Php::Module['imap'],
   }
-
-  class{'apache':
-    default_vhost  => true,
-    mpm_module     => prefork,
-    service_enable => true,
-    service_ensure => running,
+  
+  if !defined(Class['apache']) {
+    class{'apache':
+      default_vhost  => true,
+      mpm_module     => prefork,
+      service_enable => true,
+      service_ensure => running,
+    }
   }
-  class {'apache::mod::php':}
+  if !defined(Class['apache::mod::php']){
+    class {'apache::mod::php':}
+  } 
 
   apache::vhost {'osTicket':
     priority   => '10',
