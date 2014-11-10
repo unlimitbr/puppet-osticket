@@ -20,6 +20,12 @@
 #   The name of the database osTicket will connect to.
 # [*ost_db_host*]
 #   The host running the osTicket database instance
+# [*ost_version*]
+#   The version of the osTicket being installed.
+# [*ost_langs*]
+#   Array of language packs to be installed.
+# [*ost_plugins*]
+#   Array of plugins to be installed.
 #
 # === Examples
 #
@@ -34,17 +40,19 @@
 # Copyright 2014 Peter J. Pouliot <peter@pouliot.net>, unless otherwise noted.
 #
 class osticket (
-  $ost_dir   = $osticket::params::ost_dir,
   $ost_install_dir = $osticket::params::ost_install_dir,
   $ost_db_name     = $osticket::params::ost_db_name,
   $ost_db_user     = $osticket::params::ost_db_user,
   $ost_db_passwd   = $osticket::params::ost_db_passwd,
   $ost_db_host     = $osticket::params::ost_db_host,
+  $ost_version     = $osticket::params::ost_version,
   $ost_src_url     = $osticket::params::ost_src_url,
-  $osticket_admin  = $osticket::params::ost_admin_email
+  $osticket_admin  = $osticket::params::ost_admin_email,
+  $ost_langs       = [],
+  $ost_plugins     = [],
 ) inherits params {
 
-  php::module{['imap','gd',]:
+  php::module{['imap','gd','mysql']:
     notify => [Service['apache2'],Exec['enable-php5-imap']],
   }
   exec {'enable-php5-imap':
@@ -67,55 +75,38 @@ class osticket (
     port       => 80,
     docroot    => $ost_install_dir,
     logroot    => "/var/log/${module_name}",
-    require    => Vcsrepo[$ost_dir],
+    require    => Vcsrepo[$ost_install_dir],
   }
 
-  class { 'mysql::server':
-    config_hash => { 'root_password' => $ost_db_passwd }
+  if $ost_db_host == 'localhost' {
+    class { 'osticket::database::mysql':
+      ensure => 'present',
+      host => 'localhost',
+      password_hash => mysql_password("${dbpass}"),
+      user => $dbuser,
+      dbname => $dbname,
+    }
   }
 
-  mysql::db { $ost_db_name:
-    user     => $ost_db_user,
-    password => $ost_db_passwd,
-    host     => $ost_db_host,
-    grant    => ['all'],
-  }
-
-  vcsrepo { $ost_dir:
+  # Clone osticket repo
+  ensure_packages("git")
+  vcsrepo { $ost_install_dir:
     ensure   => present,
     provider => git,
     source   => $ost_src_url,
-    require  => Package['php5-gd'],
+    revision => "v${ost_version}",
+    require  => Package[['php5-gd', 'git']],
     owner    => 'www-data',
     group    => 'www-data',
-    notify   => Exec['Run-OsTicket-Setup'],
   }
 
-#  file {"${ost_dir}/include/ost-config.php":
-  file {"${ost_install_dir}/include/ost-config.php":
-    ensure  => file,
-    content => template("${module_name}/ost-config.php.erb"),
-    mode    => '0655',
-    require => Apache::Vhost['osTicket'],
-#    notify  => Exec['Run-OsTicket-Setup'],
+  # Install language packs     
+  osticket::lang { $ost_langs:
+    ost_install_dir => $ost_install_dir,
   }
 
-  exec {'Run-OsTicket-Setup':
-#    command     => "/usr/bin/php5 -q ./install.php",
-    command     => "/usr/bin/php5 setup/cli/manage.php deploy --setup ${ost_install_dir}",
-    cwd         => $ost_dir,
-    refreshonly => true,
-#    require     => File["${ost_dir}/include/ost-sampleconfig.php"],
-    require     => [ Apache::Vhost['osTicket'], Vcsrepo[$ost_dir]],
-    logoutput   => true,
+  # Install plugins
+  osticket::plugin { $ost_plugins:
+    ost_install_dir => $ost_install_dir,
   }
-
-#  file {"${ost_install_dir}/include/ost-sampleconfig.php":
-#    ensure  => absent,
-#    require => File["${ost_install_dir}/include/ost-config.php"],
-#  }
-#  file {"${ost_install_dir}/setup":
-#    ensure  => absent,
-#    require => File["${ost_install_dir}/include/ost-config.php"],
-#  }
 }
