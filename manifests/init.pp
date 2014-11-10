@@ -48,6 +48,7 @@ class osticket (
   $ost_version     = $osticket::params::ost_version,
   $ost_src_url     = $osticket::params::ost_src_url,
   $osticket_admin  = $osticket::params::ost_admin_email,
+  $vhostname       = $fqdn,
   $ost_langs       = [],
   $ost_plugins     = [],
 ) inherits params {
@@ -73,20 +74,23 @@ class osticket (
     class {'apache::mod::php':}
   } 
 
-  apache::vhost {'osTicket':
+  apache::vhost { $vhostname:
     priority   => '10',
-    vhost_name => $::ipaddress,
     port       => 80,
     docroot    => $ost_install_dir,
     logroot    => "/var/log/${module_name}",
     require    => Vcsrepo[$ost_install_dir],
   }
 
+  host { $vhostname:
+    ip => '127.0.0.1',
+  }
+
   if $ost_db_host == 'localhost' {
     class { 'osticket::database::mysql':
       ensure => 'present',
       host => 'localhost',
-      password_hash => mysql_password("${dbpass}"),
+      password_hash => mysql_password("${ost_db_passwd}"),
       user => $dbuser,
       dbname => $dbname,
     }
